@@ -1,0 +1,26 @@
+{
+  "name": "creative-passport-aggregator",
+  "version": "0.1.0",
+  "description": "Multi-protocol aggregator, search index, and public API for Creative Passport artist datasets (AT Protocol PDS, Solid Pods, Static JSON-LD/Turtle).",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --import tsx --test test/*.test.ts",
+    "start": "node --import tsx src/index.ts"
+  },
+  "keywords": [
+    "creative-passport",
+    "aggregator",
+    "appview",
+    "atproto",
+    "solid",
+    "json-ld",
+    "api"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
