@@ -1,5 +1,5 @@
 /**
- * Creative Passport Aggregator HTTP API Server (`src/server.ts`)
+ * CreativeID Aggregator HTTP API Server (`src/server.ts`)
  */
 
 import { createServer, IncomingMessage, Server, ServerResponse } from "node:http";

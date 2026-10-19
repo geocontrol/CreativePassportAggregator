@@ -250,9 +250,9 @@ export class ArtistIndexStore {
         biography:
           "Pioneer of computer art and generative plotter drawings based on geometric abstraction and algorithmic permutations.",
         protocol: "solid",
-        sourceUri: "https://veramolnar.solidweb.me/public/passport.ttl#me",
-        httpEndpoint: "https://veramolnar.solidweb.me/public/passport.ttl",
-        subjectId: "https://veramolnar.solidweb.me/public/passport.ttl#me",
+        sourceUri: "https://veramolnar.solidweb.me/public/creativeid.ttl#me",
+        httpEndpoint: "https://veramolnar.solidweb.me/public/creativeid.ttl",
+        subjectId: "https://veramolnar.solidweb.me/public/creativeid.ttl#me",
         updatedAt: "2026-10-15T18:00:00.000Z",
         now,
       }),
@@ -261,9 +261,9 @@ export class ArtistIndexStore {
         biography:
           " audiovisual artist and electronic composer focusing on the essential characteristics of sound and light through mathematical precision.",
         protocol: "solid",
-        sourceUri: "https://ikeda.solidcommunity.net/public/passport.jsonld#me",
-        httpEndpoint: "https://ikeda.solidcommunity.net/public/passport.jsonld",
-        subjectId: "https://ikeda.solidcommunity.net/public/passport.jsonld#me",
+        sourceUri: "https://ikeda.solidcommunity.net/public/creativeid.jsonld#me",
+        httpEndpoint: "https://ikeda.solidcommunity.net/public/creativeid.jsonld",
+        subjectId: "https://ikeda.solidcommunity.net/public/creativeid.jsonld#me",
         updatedAt: "2026-10-17T11:30:00.000Z",
         now,
       }),
@@ -273,11 +273,11 @@ export class ArtistIndexStore {
           "Five-time Grammy-nominated composer, quadraphonic Buchla modular synthesizer pioneer, and sound designer.",
         protocol: "static",
         sourceUri:
-          "https://sevwave.example.org/.well-known/creative-passport.jsonld#me",
+          "https://sevwave.example.org/.well-known/creativeid.jsonld#me",
         httpEndpoint:
-          "https://sevwave.example.org/.well-known/creative-passport.jsonld",
+          "https://sevwave.example.org/.well-known/creativeid.jsonld",
         subjectId:
-          "https://sevwave.example.org/.well-known/creative-passport.jsonld#me",
+          "https://sevwave.example.org/.well-known/creativeid.jsonld#me",
         updatedAt: "2026-10-17T12:45:00.000Z",
         now,
       }),

@@ -1,9 +1,9 @@
 /**
  * Multi-Protocol Resolver & Normalizer (`src/resolver.ts`)
- * Fetches and normalizes Creative Passport records from:
+ * Fetches and normalizes CreativeID records from:
  * 1. AT Protocol PDS (via XRPC com.atproto.repo.getRecord or Jetstream commit events)
  * 2. Solid Data Pods (via HTTP GET of RDF Turtle or JSON-LD)
- * 3. Static Domains (via direct JSON-LD / Turtle URL or /.well-known/creative-passport.jsonld)
+ * 3. Static Domains (via direct JSON-LD / Turtle URL or /.well-known/creativeid.jsonld)
  */
 
 import { createHash } from "node:crypto";
@@ -21,7 +21,7 @@ export function makeArtistId(protocol: SourceProtocol, canonicalKey: string): st
     .update(`${protocol}:${canonicalKey.trim().toLowerCase()}`)
     .digest("hex")
     .slice(0, 12);
-  return `cp_${protocol}_${hash}`;
+  return `pers_${protocol}_${hash}`;
 }
 
 export function buildNormalizedArtist(params: {
@@ -62,18 +62,18 @@ export function buildNormalizedArtist(params: {
       "@context": {
         "@vocab": "https://schema.org/",
         foaf: "http://xmlns.com/foaf/0.1/",
-        cp: "https://creativepassport.org/ns#",
+        creativeid: "https://www.cultureblocs.com/ns/creativeid#",
       },
       "@id": subjectId,
-      "@type": ["Person", "cp:CreativePersona"],
+      "@type": ["Person", "creativeid:Persona"],
       name: params.name.trim(),
       description: params.biography.trim(),
       "foaf:name": params.name.trim(),
       dateModified: updatedAt,
-      "cp:sourceProtocol": params.protocol,
-      "cp:sourceUri": params.sourceUri,
-      ...(params.did ? { "cp:did": params.did } : {}),
-      ...(params.cid ? { "cp:cid": params.cid } : {}),
+      "creativeid:sourceProtocol": params.protocol,
+      "creativeid:sourceUri": params.sourceUri,
+      ...(params.did ? { "creativeid:did": params.did } : {}),
+      ...(params.cid ? { "creativeid:cid": params.cid } : {}),
     },
   };
 }
@@ -90,7 +90,7 @@ function unescapeTurtleLiteral(raw: string): string {
 }
 
 /**
- * Parses a Creative Passport RDF Turtle (`text/turtle`) document into name, biography, updatedAt, and subjectId.
+ * Parses a CreativeID RDF Turtle (`text/turtle`) document into name, biography, updatedAt, and subjectId.
  */
 export function parseTurtlePersona(
   turtle: string,
@@ -116,7 +116,7 @@ export function parseTurtlePersona(
 
   if (!nameMatch || !bioMatch) {
     throw new Error(
-      "Invalid RDF Turtle Creative Passport: missing schema:name or schema:description triple."
+      "Invalid RDF Turtle CreativeID: missing schema:name or schema:description triple."
     );
   }
 
@@ -129,7 +129,7 @@ export function parseTurtlePersona(
 }
 
 /**
- * Parses a Creative Passport JSON-LD document into name, biography, updatedAt, and subjectId.
+ * Parses a CreativeID JSON-LD document into name, biography, updatedAt, and subjectId.
  */
 export function parseJsonLdPersona(
   rawJson: string,
@@ -154,7 +154,7 @@ export function parseJsonLdPersona(
 
   if (!name || !biography) {
     throw new Error(
-      "Invalid JSON-LD Creative Passport: missing `name` or `description`."
+      "Invalid JSON-LD CreativeID: missing `name` or `description`."
     );
   }
 
@@ -205,7 +205,7 @@ export function detectProtocol(
 }
 
 /**
- * Resolves and normalizes a Creative Passport from any supported decentralized source.
+ * Resolves and normalizes a CreativeID from any supported decentralized source.
  */
 export async function resolveAndNormalizeArtist(
   input: IndexRequestInput,
@@ -320,10 +320,10 @@ async function resolveHttpLinkedDataArtist(
   fetchImpl: typeof fetch,
   now: Date
 ): Promise<IndexedArtist> {
-  // Support bare domain lookup via /.well-known/creative-passport.jsonld
+  // Support bare domain lookup via /.well-known/creativeid.jsonld
   let targetUrl = rawUri;
   if (!/^https?:\/\//i.test(targetUrl)) {
-    targetUrl = `https://${targetUrl.replace(/\/+$/, "")}/.well-known/creative-passport.jsonld`;
+    targetUrl = `https://${targetUrl.replace(/\/+$/, "")}/.well-known/creativeid.jsonld`;
   }
 
   const fetchUrl = targetUrl.split("#")[0];

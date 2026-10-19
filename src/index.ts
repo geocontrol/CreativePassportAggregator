@@ -36,7 +36,7 @@ if (isMain) {
     const server = createAggregatorServer({ store });
     server.listen(port, "127.0.0.1", () => {
       console.log(
-        `Creative Passport Aggregator API & Demo UI running at http://localhost:${port}`
+        `CreativeID Aggregator API & Demo UI running at http://localhost:${port}`
       );
     });
   });

@@ -1,7 +1,7 @@
 {
-  "name": "creative-passport-aggregator",
+  "name": "creativeid-aggregator",
   "version": "0.1.0",
-  "description": "Multi-protocol aggregator, search index, and public API for Creative Passport artist datasets (AT Protocol PDS, Solid Pods, Static JSON-LD/Turtle).",
+  "description": "Multi-protocol aggregator, search index, and public API for CreativeID persona datasets (AT Protocol PDS, Solid Pods, Static JSON-LD/Turtle).",
   "type": "module",
   "scripts": {
     "build": "tsc",
@@ -9,7 +9,7 @@
     "start": "node --import tsx src/index.ts"
   },
   "keywords": [
-    "creative-passport",
+    "creativeid",
     "aggregator",
     "appview",
     "atproto",

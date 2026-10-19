@@ -13,7 +13,7 @@ import {
   parseTurtlePersona,
 } from "../src/index.js";
 
-describe("Creative Passport Aggregator: Multi-Protocol Resolution, Search, and API", () => {
+describe("CreativeID Aggregator: Multi-Protocol Resolution, Search, and API", () => {
   let tmpDir: string;
   let server: Server;
   let baseUrl: string;
@@ -40,15 +40,15 @@ describe("Creative Passport Aggregator: Multi-Protocol Resolution, Search, and A
     }
 
     // 2. Mock Solid Pod RDF Turtle endpoint
-    if (url === "https://wendycarlos.solidweb.me/public/passport.ttl") {
+    if (url === "https://wendycarlos.solidweb.me/public/creativeid.ttl") {
       const ttl = [
         "@prefix schema: <https://schema.org/> .",
         "@prefix foaf: <http://xmlns.com/foaf/0.1/> .",
-        "@prefix cp: <https://creativepassport.org/ns#> .",
+        "@prefix creativeid: <https://www.cultureblocs.com/ns/creativeid#> .",
         "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .",
         "",
-        "<https://wendycarlos.solidweb.me/public/passport.ttl#me>",
-        "  a schema:Person, foaf:Person, cp:CreativePersona ;",
+        "<https://wendycarlos.solidweb.me/public/creativeid.ttl#me>",
+        "  a schema:Person, foaf:Person, creativeid:Persona ;",
         '  schema:name "Wendy Carlos" ;',
         '  schema:description "Electronic music pioneer, Moog synthesizer virtuoso, and film composer." ;',
         '  schema:dateModified "2026-10-17T16:05:00.000Z"^^xsd:dateTime .',
@@ -63,8 +63,8 @@ describe("Creative Passport Aggregator: Multi-Protocol Resolution, Search, and A
       });
     }
 
-    // 3. Mock Static Domain /.well-known/creative-passport.jsonld
-    if (url === "https://aphex.example.org/.well-known/creative-passport.jsonld") {
+    // 3. Mock Static Domain /.well-known/creativeid.jsonld
+    if (url === "https://aphex.example.org/.well-known/creativeid.jsonld") {
       return new Response(
         JSON.stringify({
           "@context": { "@vocab": "https://schema.org/" },
@@ -174,7 +174,7 @@ describe("Creative Passport Aggregator: Multi-Protocol Resolution, Search, and A
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        uri: "https://wendycarlos.solidweb.me/public/passport.ttl",
+        uri: "https://wendycarlos.solidweb.me/public/creativeid.ttl",
       }),
     });
     assert.equal(solidRes.status, 200);
@@ -185,7 +185,7 @@ describe("Creative Passport Aggregator: Multi-Protocol Resolution, Search, and A
     assert.equal(solidBody.artist.protocol, "solid");
     assert.equal(solidBody.artist.etag, '"etag-wendy-1"');
 
-    // 3. Index Static bare domain via /.well-known/creative-passport.jsonld
+    // 3. Index Static bare domain via /.well-known/creativeid.jsonld
     const staticRes = await fetch(`${baseUrl}/v1/index`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -208,10 +208,10 @@ describe("Creative Passport Aggregator: Multi-Protocol Resolution, Search, and A
     assert.equal(lookupRes.status, 200);
     const jsonLd = (await lookupRes.json()) as {
       name: string;
-      "cp:sourceProtocol": string;
+      "creativeid:sourceProtocol": string;
     };
     assert.equal(jsonLd.name, "Holly Herndon");
-    assert.equal(jsonLd["cp:sourceProtocol"], "atproto");
+    assert.equal(jsonLd["creativeid:sourceProtocol"], "atproto");
   });
 
   it("ingests real-time ATProto Jetstream commit events via POST /v1/jetstream/event", async () => {

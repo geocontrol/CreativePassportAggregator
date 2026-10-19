@@ -1,5 +1,5 @@
 /**
- * Normalized Types & Schemas for Creative Passport Aggregator (`src/types.ts`)
+ * Normalized Types & Schemas for CreativeID Aggregator (`src/types.ts`)
  */
 
 export type SourceProtocol = "atproto" | "solid" | "static";
@@ -13,7 +13,7 @@ export interface IndexedArtist {
   biography: string;
   /** Which decentralized protocol hosts the source of truth */
   protocol: SourceProtocol;
-  /** Canonical URI of the remote record (at://..., https://pod.../passport.ttl#me, etc.) */
+  /** Canonical URI of the remote record (at://..., https://pod.../creativeid.ttl#me, etc.) */
   sourceUri: string;
   /** Optional HTTP URL to inspect or dereference the source record */
   httpEndpoint?: string;
@@ -36,18 +36,18 @@ export interface IndexedArtist {
     "@context": {
       "@vocab": "https://schema.org/";
       foaf: "http://xmlns.com/foaf/0.1/";
-      cp: "https://creativepassport.org/ns#";
+      creativeid: "https://www.cultureblocs.com/ns/creativeid#";
     };
     "@id": string;
-    "@type": ["Person", "cp:CreativePersona"];
+    "@type": ["Person", "creativeid:Persona"];
     name: string;
     description: string;
     "foaf:name": string;
     dateModified: string;
-    "cp:sourceProtocol": SourceProtocol;
-    "cp:sourceUri": string;
-    "cp:did"?: string;
-    "cp:cid"?: string;
+    "creativeid:sourceProtocol": SourceProtocol;
+    "creativeid:sourceUri": string;
+    "creativeid:did"?: string;
+    "creativeid:cid"?: string;
   };
 }
 

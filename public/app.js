@@ -156,16 +156,16 @@ els.seedBtn.addEventListener("click", async () => {
   await runSearch();
 });
 
-// Quick-fill helpers to pull from a local CreativePassport Studio instance on port 3400
+// Quick-fill helpers to pull from a local CreativeID Studio instance on port 3400
 els.fillLocalAtproto.addEventListener("click", () => {
   els.indexUri.value =
-    "at://did:plc:sandboxadacreativepassportlocal/org.creativepassport.actor.persona/self";
+    "at://did:plc:sandboxadacreativeidlocal/org.creativepassport.actor.persona/self";
   els.indexProtocol.value = "atproto";
   els.indexPds.value = "http://localhost:3400/sandbox/atproto";
 });
 
 els.fillLocalSolid.addEventListener("click", () => {
-  els.indexUri.value = "http://localhost:3400/sandbox/solid/public/passport.ttl#me";
+  els.indexUri.value = "http://localhost:3400/sandbox/solid/public/creativeid.ttl#me";
   els.indexProtocol.value = "solid";
   els.indexPds.value = "";
 });
