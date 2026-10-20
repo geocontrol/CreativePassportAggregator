@@ -3,144 +3,96 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CreativeID Aggregator — Artist API &amp; Directory</title>
+  <title>CreativeID Directory</title>
+  <meta name="description" content="Search creative personas published to AT Protocol, Solid Pods and personal websites, and see who confirms whose work." />
+  <link rel="icon" href="data:," />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="topbar-brand">
-      <span class="emblem">CPA</span>
-      <div>
-        <h1>CreativeID Aggregator <span class="pill">API v1</span></h1>
-        <p class="subtitle">Unified search &amp; lookup API across AT Protocol PDS, Solid Pods, and Static Linked Data</p>
-      </div>
+  <a class="skip-link" href="#results-heading">Skip to results</a>
+
+  <header class="masthead">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">ID</span>
+      <h1 class="brand-name">CreativeID Directory</h1>
     </div>
-    <div class="stats-bar" id="stats-bar">
-      <div class="stat-chip">Total: <strong id="stat-total">0</strong></div>
-      <div class="stat-chip atproto">ATProto: <strong id="stat-atproto">0</strong></div>
-      <div class="stat-chip solid">Solid: <strong id="stat-solid">0</strong></div>
-      <div class="stat-chip static">Static: <strong id="stat-static">0</strong></div>
-      <button type="button" class="btn btn-small btn-ghost" id="seed-btn">Reset / Seed Demo Data</button>
-    </div>
+    <p class="stats" id="stats" role="status"></p>
   </header>
 
-  <main class="layout">
-    <!-- Left / Main Column: Search Interface & Results -->
-    <section class="main-col">
-      <div class="panel search-panel">
-        <div class="search-row">
-          <input
-            type="search"
-            id="search-input"
-            placeholder="Search artists by name, biography keywords, DID, handle, or WebID..."
-          />
-          <button type="button" class="btn btn-primary" id="search-btn">Search API</button>
-        </div>
-
-        <div class="filter-row">
-          <div class="filter-pills" role="group" aria-label="Protocol Filter">
-            <button type="button" class="filter-pill active" data-protocol="">All Protocols</button>
-            <button type="button" class="filter-pill" data-protocol="atproto">AT Protocol PDS</button>
-            <button type="button" class="filter-pill" data-protocol="solid">Solid Data Pod</button>
-            <button type="button" class="filter-pill" data-protocol="static">Static Domain</button>
-          </div>
-          <code class="live-endpoint" id="live-endpoint-url">GET /v1/artists</code>
-        </div>
-      </div>
-
-      <div class="results-header">
-        <span id="results-count">Loading artists...</span>
-      </div>
-
-      <div class="results-list" id="results-list"></div>
+  <main class="page">
+    <section class="intro">
+      <p>Creative personas published by the people themselves, to AT Protocol, Solid Pods or their own websites. This directory only reads what they published, and anyone can run another.</p>
     </section>
 
-    <!-- Right Column: Live API Inspector & URI Ingestion -->
-    <aside class="side-col">
-      <!-- Selected Artist JSON / API Response Inspector -->
-      <div class="panel">
-        <div class="panel-header">
-          <h2>API Response Inspector</h2>
-          <button type="button" class="btn btn-small btn-ghost" id="copy-json-btn">Copy JSON</button>
-        </div>
-        <p class="hint" id="inspector-endpoint">Click "Inspect API JSON" on any artist card or run a search.</p>
-        <pre class="code-box"><code id="inspector-code">// API JSON response will appear here</code></pre>
+    <form class="search" id="search-form" role="search">
+      <div class="field grow">
+        <label for="q">Search</label>
+        <input type="search" id="q" placeholder="A name, a word from a bio, a handle" autocomplete="off" />
       </div>
+      <div class="field">
+        <label for="discipline">Discipline</label>
+        <select id="discipline"><option value="">Any</option></select>
+      </div>
+      <div class="field">
+        <label for="based">Based in</label>
+        <input type="text" id="based" placeholder="Anywhere" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="protocol">Published to</label>
+        <select id="protocol">
+          <option value="">Anywhere</option>
+          <option value="atproto">AT Protocol</option>
+          <option value="solid">Solid Pod</option>
+          <option value="static">Their own website</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">Search</button>
+    </form>
 
-      <!-- Ping / Index Live Artist URI -->
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Index / Ping Artist URI</h2>
-          <span class="pill">POST /v1/index</span>
-        </div>
-        <p class="panel-desc">
-          Submit an artist's published URI (ATProto, Solid Pod, or Static JSON-LD) to fetch, normalize, and index it live.
-        </p>
-        <form id="index-form">
+    <div class="layout">
+      <section class="results" aria-labelledby="results-heading">
+        <h2 id="results-heading" class="results-heading">Personas</h2>
+        <p class="results-count" id="results-count" role="status"></p>
+        <ol class="result-list" id="results"></ol>
+      </section>
+
+      <section class="detail" id="detail" aria-live="polite" tabindex="-1">
+        <p class="placeholder">Choose a persona to see their works, who they've worked with, and where two people's accounts match.</p>
+      </section>
+    </div>
+
+    <section class="tools">
+      <details>
+        <summary>Add a persona to this directory</summary>
+        <p class="hint">Paste an at:// link, a DID, an @handle, a Solid resource, a link to a <code>creativeid.jsonld</code> file, or just a domain (its <code>/.well-known/creativeid.jsonld</code> is read). The directory fetches it and keeps a copy; the original stays where it is.</p>
+        <form id="index-form" novalidate>
           <div class="field">
-            <label for="index-uri">Published Resource URI</label>
-            <input
-              type="text"
-              id="index-uri"
-              placeholder="at://did:plc:.../org.creativepassport.actor.persona/self or https://..."
-              required
-            />
+            <label for="index-uri">Where to find it</label>
+            <input type="text" id="index-uri" autocomplete="off" placeholder="@you.bsky.social, did:plc:…, https://you.example" />
           </div>
-          <div class="field-grid">
-            <div class="field">
-              <label for="index-protocol">Protocol Hint (Optional)</label>
-              <select id="index-protocol">
-                <option value="">Auto-detect</option>
-                <option value="atproto">AT Protocol PDS</option>
-                <option value="solid">Solid Pod</option>
-                <option value="static">Static JSON-LD / Turtle</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="index-pds">PDS URL (For ATProto)</label>
-              <input type="url" id="index-pds" placeholder="https://bsky.social" />
-            </div>
+          <div class="field">
+            <label for="index-pds">PDS address (only for a local sandbox)</label>
+            <input type="url" id="index-pds" autocomplete="off" placeholder="http://localhost:3400/sandbox/atproto" />
           </div>
-          <div class="quick-fill-row">
-            <button type="button" class="btn btn-small btn-ghost" id="fill-local-atproto">
-              From Local CreativeID Studio (ATProto :3400)
-            </button>
-            <button type="button" class="btn btn-small btn-ghost" id="fill-local-solid">
-              From Local CreativeID Studio (Solid :3400)
-            </button>
-          </div>
-          <div class="form-actions">
-            <button type="submit" class="btn btn-accent">Fetch &amp; Index Artist</button>
-            <span class="status-msg" id="index-status"></span>
+          <div class="actions">
+            <button type="submit" class="btn btn-primary">Fetch and add</button>
+            <p class="status" id="index-status" role="status"></p>
           </div>
         </form>
-      </div>
+      </details>
 
-      <!-- Developer API Quick Reference -->
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Developer API Reference</h2>
-        </div>
+      <details>
+        <summary>Use the API</summary>
+        <p class="hint">Everything on this page comes from a JSON API that any site can call.</p>
         <ul class="api-list">
-          <li>
-            <code>GET /v1/artists?q=&lt;term&gt;&amp;protocol=&lt;atproto|solid|static&gt;</code>
-            <span>Full-text search across names, bios, handles, and DIDs.</span>
-          </li>
-          <li>
-            <code>GET /v1/artists/:identifier</code>
-            <span>Lookup by Aggregator ID, DID (<code>did:plc:...</code>), handle, or URI. Add <code>?view=jsonld</code> for pure Linked Data.</span>
-          </li>
-          <li>
-            <code>POST /v1/index</code>
-            <span>Ping-on-publish webhook to fetch &amp; index a remote URI.</span>
-          </li>
-          <li>
-            <code>POST /v1/jetstream/event</code>
-            <span>Ingest filtered ATProto Jetstream commit events.</span>
-          </li>
+          <li><a href="/v1/personas?discipline=sound">/v1/personas?q=&amp;discipline=&amp;based=&amp;protocol=</a></li>
+          <li><a href="/v1/personas/ama-owusu.example">/v1/personas/:id</a> (index id, DID, handle, URL or domain), with <code>/works</code>, <code>/connections</code>, <code>/loops</code></li>
+          <li><a href="/v1/disciplines">/v1/disciplines</a></li>
+          <li><a href="/v1/stats">/v1/stats</a></li>
+          <li><code>POST /v1/index</code> with <code>{ "uri": "…" }</code> to add or refresh a persona</li>
         </ul>
-      </div>
-    </aside>
+      </details>
+    </section>
   </main>
 
   <script type="module" src="/app.js"></script>

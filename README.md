@@ -1,38 +1,70 @@
-# CreativeID Aggregator (v1 Prototype)
+# CreativeID Aggregator
 
-An open **Aggregator, Normalizer, and Search API Service** ("AppView" + Linked Data Indexer) for artist biographies published with **CreativeID** across:
-- **AT Protocol PDS** (`org.creativepassport.actor.persona` on Bluesky, Eurosky, or self-hosted PDS)
-- **Solid Data Pods** (`text/turtle` and `application/ld+json` resources)
-- **Static Domains** (`/.well-known/creativeid.jsonld` or standalone URLs)
+A directory of creative personas published with [CreativeID Studio](https://github.com/geocontrol/creativeid-studio): to AT Protocol, Solid Pods, or a file on someone's own website. It reads what people published, keeps a copy to search, and shows where two people's accounts match. It owns nothing: every entry can be rebuilt from its source, and anyone can run another directory.
 
-## Quick Start
+## Quick start
 
 ```bash
-cd ~/Projects/creativeid-studioAggregator
 npm install
 npm start
 ```
 
-Open **http://localhost:3500** for the **Demo Search & API Explorer UI**.
-*(On first startup, 5 demo artists across Eurosky, Bluesky, Solid Pods, and Static domains are automatically seeded).*
+Open **http://localhost:3500**. On first start it loads five fictional demo personas (`SEED=off` to start empty).
 
-## REST API Endpoints
+| Setting | Effect |
+| --- | --- |
+| `PORT` (default 3500), `HOST` (default 127.0.0.1) | Where it listens |
+| `JETSTREAM=on` | Listen live to AT Protocol (only the three CultureBlocs creative collections). Off by default, so a local run makes no network connections of its own. |
+| `JETSTREAM_URL` | Use another Jetstream instance |
+| `ALLOW_PRIVATE_HOSTS=true` | Let `/v1/index` fetch from localhost and private networks when not bound to localhost. On automatically for a local run, so a studio on the same machine can be indexed. |
 
-| Endpoint | Description |
-| :--- | :--- |
-| `GET /v1/artists?q=<query>&protocol=<atproto\|solid\|static>` | Full-text search and protocol filtering across indexed artists. |
-| `GET /v1/artists/:identifier` | Lookup an artist by aggregator ID, DID (`did:plc:...`), handle (`daphne.eurosky.social`), or URI. Pass `?view=jsonld` for pure JSON-LD output, or `?resolve=true` for live read-through resolution. |
-| `POST /v1/index` | "Ping-on-Publish" webhook (`{ "uri": "...", "pdsUrl": "..." }`) to fetch, normalize, and index a remote CreativeID live. |
-| `POST /v1/jetstream/event` | Ingest a filtered ATProto Jetstream commit event (`wantedCollections=org.creativepassport.actor.persona`). |
-| `GET /v1/stats` | Protocol breakdown and index counts. |
+## What it indexes
 
-## Testing With Local `CreativeID Studio` Studio
-If you have the local authoring tool (`~/Projects/creativeid-studio`) running on `http://localhost:3400`:
-1. Publish your persona to the local ATProto or Solid sandbox on `:3400`.
-2. In the Aggregator UI (`http://localhost:3500`), click **"From Local CreativeID Studio (ATProto :3400)"** or **"From Local CreativeID Studio (Solid :3400)"** and click **Fetch & Index Artist**.
+| Record | From AT Protocol | From a file or Solid Pod |
+| --- | --- | --- |
+| Persona | `com.cultureblocs.creative.profile` | the `#me` node |
+| Work | `com.cultureblocs.creative.work` | `#work-…` nodes |
+| Connection | `com.cultureblocs.creative.connection` | `#claim-…` nodes |
 
-## Running Tests & Build
+Ways in:
+- **Studio ping:** add this directory under *Publish → Directories to tell* in the studio, and every publish tells it where to look.
+- **`POST /v1/index`** with an at:// link, DID, @handle, https URL, or a bare domain (its `/.well-known/creativeid.jsonld` is read).
+- **Jetstream** (`JETSTREAM=on`): creates, edits and deletes arrive live.
+
+Published data is treated as untrusted: values are type-checked and capped at the lexicon limits, documents are limited to 256 KB and 10 s, and a public instance refuses to fetch from private networks.
+
+## Matches ("loops")
+
+Nobody approves anything. A match exists when two parties independently say the same thing:
+- **Peer:** A names B, and B names A.
+- **Work:** someone (a venue, a gallery) points at a work in another person's repository. If they pinned the work's version (CID) and the work has since been edited, the directory says so.
+
+Matches are reported as plain facts. There are no badges or scores, and a one-sided claim is shown as "only their side so far", which is normal.
+
+## API
+
+Read-only routes allow any origin (CORS).
+
+| Endpoint | |
+| --- | --- |
+| `GET /v1/personas?q=&discipline=&based=&protocol=&limit=&offset=` | Search, with counts of works, connections and matches |
+| `GET /v1/personas/:id` | `:id` = index id, DID, handle, document URL or domain. `?resolve=true` fetches it if not indexed yet |
+| `GET /v1/personas/:id/works` | Works, each with its matches |
+| `GET /v1/personas/:id/connections` | `{ outgoing, incoming }` |
+| `GET /v1/personas/:id/loops` | Every match involving them |
+| `GET /v1/works/:uri` | One work, its persona and its matches |
+| `GET /v1/disciplines` | Disciplines in use, most common first |
+| `GET /v1/stats` | Counts by record type, protocol and match type |
+| `POST /v1/index` | `{ uri, sourceType?, pdsUrl?, handle? }`: fetch and (re)index one persona |
+| `POST /v1/jetstream/event` | Apply one Jetstream commit (for bridges and tests) |
+| `POST /v1/seed` | Load the fictional demo personas |
+
+## Development
+
 ```bash
-npm test
+npm test           # parsing, fetching, matches, the index, Jetstream, API
+npm run typecheck
 npm run build
 ```
+
+`test/fixtures/` holds a persona exactly as the studio publishes it (JSON-LD, Turtle and AT Protocol records), regenerated from the studio's own code, so the two can't drift silently.

@@ -1,5 +1,7 @@
 # CreativeID Aggregator — Scope & Prototype Architecture (v1)
 
+> **Note (2026-10-20):** this describes the v1 prototype (one name + bio record, `/v1/artists`). Since M6 the aggregator indexes personas, works and connections from `com.cultureblocs.creative.*` and computes matches; see [README.md](README.md). This document is rewritten in M7.
+
 ## 1. Purpose
 **CreativeID Aggregator** is an open indexing and lookup API service ("AppView" + Linked Data Indexer) that provides a unified interface to artist biography datasets published across heterogeneous decentralized stores:
 - **AT Protocol PDS** (Bluesky, Eurosky, self-hosted PDS instances via `org.creativepassport.actor.persona`)

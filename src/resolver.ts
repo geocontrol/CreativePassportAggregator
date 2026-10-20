@@ -1,409 +1,163 @@
 /**
- * Multi-Protocol Resolver & Normalizer (`src/resolver.ts`)
- * Fetches and normalizes CreativeID records from:
- * 1. AT Protocol PDS (via XRPC com.atproto.repo.getRecord or Jetstream commit events)
- * 2. Solid Data Pods (via HTTP GET of RDF Turtle or JSON-LD)
- * 3. Static Domains (via direct JSON-LD / Turtle URL or /.well-known/creativeid.jsonld)
+ * Fetching a published persona (`src/resolver.ts`) — M6.
+ *
+ *   ATProto  an at:// link to any creative record, a DID, an @handle, or a
+ *            getRecord URL → the account's profile plus every work and
+ *            connection record (listRecords, paginated)
+ *   Static   an https URL, or a bare domain → /.well-known/creativeid.jsonld
+ *   Solid    an https URL to a .ttl/.jsonld resource
+ * Linked Data fetches are capped (256 KB, 10 s) because the URL is supplied
+ * by whoever pings the index.
  */
 
-import { createHash } from "node:crypto";
-import {
-  IndexedArtist,
-  IndexRequestInput,
-  JetstreamCommitEvent,
-  SourceProtocol,
-} from "./types.js";
+import { fromAtprotoRecords, fromJsonLd, fromTurtle, FetchedRecord } from "./graph.js";
+import { resolveDid, resolveHandle } from "./identity.js";
+import { IndexRequestInput, NSID, PersonaBundle, SourceProtocol } from "./types.js";
 
-export const ATPROTO_COLLECTION = "org.creativepassport.actor.persona";
+export const WELL_KNOWN = "/.well-known/creativeid.jsonld";
+export const MAX_DOCUMENT_BYTES = 256 * 1024;
+const TIMEOUT_MS = 10_000;
 
-export function makeArtistId(protocol: SourceProtocol, canonicalKey: string): string {
-  const hash = createHash("sha256")
-    .update(`${protocol}:${canonicalKey.trim().toLowerCase()}`)
-    .digest("hex")
-    .slice(0, 12);
-  return `pers_${protocol}_${hash}`;
-}
-
-export function buildNormalizedArtist(params: {
-  name: string;
-  biography: string;
-  protocol: SourceProtocol;
-  sourceUri: string;
-  httpEndpoint?: string;
-  did?: string;
-  handle?: string;
-  cid?: string;
-  subjectId?: string;
-  etag?: string;
-  updatedAt?: string;
+export interface ResolveContext {
+  fetchImpl?: typeof fetch;
   now?: Date;
-}): IndexedArtist {
-  const nowIso = (params.now ?? new Date()).toISOString();
-  const updatedAt = params.updatedAt || nowIso;
-  const canonicalKey = params.did || params.sourceUri;
-  const id = makeArtistId(params.protocol, canonicalKey);
-  const subjectId = params.subjectId || params.sourceUri;
-
-  return {
-    id,
-    name: params.name.trim(),
-    biography: params.biography.trim(),
-    protocol: params.protocol,
-    sourceUri: params.sourceUri,
-    httpEndpoint: params.httpEndpoint,
-    did: params.did,
-    handle: params.handle,
-    cid: params.cid,
-    subjectId,
-    etag: params.etag,
-    updatedAt,
-    indexedAt: nowIso,
-    jsonLd: {
-      "@context": {
-        "@vocab": "https://schema.org/",
-        foaf: "http://xmlns.com/foaf/0.1/",
-        creativeid: "https://www.cultureblocs.com/ns/creativeid#",
-      },
-      "@id": subjectId,
-      "@type": ["Person", "creativeid:Persona"],
-      name: params.name.trim(),
-      description: params.biography.trim(),
-      "foaf:name": params.name.trim(),
-      dateModified: updatedAt,
-      "creativeid:sourceProtocol": params.protocol,
-      "creativeid:sourceUri": params.sourceUri,
-      ...(params.did ? { "creativeid:did": params.did } : {}),
-      ...(params.cid ? { "creativeid:cid": params.cid } : {}),
-    },
-  };
+  plcDirectory?: string;
+  publicApi?: string;
 }
 
-/**
- * Unescapes double-quoted RDF Turtle string literals.
- */
-function unescapeTurtleLiteral(raw: string): string {
-  return raw
-    .replace(/\\n/g, "\n")
-    .replace(/\\r/g, "\r")
-    .replace(/\\"/g, '"')
-    .replace(/\\\\/g, "\\");
-}
-
-/**
- * Parses a CreativeID RDF Turtle (`text/turtle`) document into name, biography, updatedAt, and subjectId.
- */
-export function parseTurtlePersona(
-  turtle: string,
-  fallbackSubjectUri: string
-): {
-  name: string;
-  biography: string;
-  updatedAt?: string;
-  subjectId: string;
-} {
-  const subjectMatch = turtle.match(/^\s*<([^>]+)>\s*\n?\s*a\s+/m);
-  const subjectId = subjectMatch ? subjectMatch[1] : fallbackSubjectUri;
-
-  const nameMatch =
-    turtle.match(/(?:schema:name|foaf:name)\s+"((?:[^"\\]|\\.)*)"/) ??
-    turtle.match(/name\s+"((?:[^"\\]|\\.)*)"/);
-  const bioMatch =
-    turtle.match(/schema:description\s+"((?:[^"\\]|\\.)*)"/) ??
-    turtle.match(/description\s+"((?:[^"\\]|\\.)*)"/);
-  const modMatch = turtle.match(
-    /schema:dateModified\s+"((?:[^"\\]|\\.)*)"(?:\^\^xsd:dateTime)?/
-  );
-
-  if (!nameMatch || !bioMatch) {
-    throw new Error(
-      "Invalid RDF Turtle CreativeID: missing schema:name or schema:description triple."
-    );
-  }
-
-  return {
-    name: unescapeTurtleLiteral(nameMatch[1]),
-    biography: unescapeTurtleLiteral(bioMatch[1]),
-    updatedAt: modMatch ? unescapeTurtleLiteral(modMatch[1]) : undefined,
-    subjectId,
-  };
-}
-
-/**
- * Parses a CreativeID JSON-LD document into name, biography, updatedAt, and subjectId.
- */
-export function parseJsonLdPersona(
-  rawJson: string,
-  fallbackSubjectUri: string
-): {
-  name: string;
-  biography: string;
-  updatedAt?: string;
-  subjectId: string;
-} {
-  const doc = JSON.parse(rawJson) as Record<string, unknown>;
-  const name =
-    (typeof doc.name === "string" && doc.name) ||
-    (typeof doc["foaf:name"] === "string" && doc["foaf:name"]) ||
-    (typeof doc["https://schema.org/name"] === "string" &&
-      doc["https://schema.org/name"]);
-  const biography =
-    (typeof doc.description === "string" && doc.description) ||
-    (typeof doc.biography === "string" && doc.biography) ||
-    (typeof doc["https://schema.org/description"] === "string" &&
-      doc["https://schema.org/description"]);
-
-  if (!name || !biography) {
-    throw new Error(
-      "Invalid JSON-LD CreativeID: missing `name` or `description`."
-    );
-  }
-
-  const updatedAt =
-    typeof doc.dateModified === "string"
-      ? doc.dateModified
-      : typeof doc.updatedAt === "string"
-        ? doc.updatedAt
-        : undefined;
-  const subjectId =
-    typeof doc["@id"] === "string" && doc["@id"].trim()
-      ? doc["@id"]
-      : fallbackSubjectUri;
-
-  return {
-    name,
-    biography,
-    updatedAt,
-    subjectId,
-  };
-}
-
-/**
- * Detects the protocol (`atproto`, `solid`, or `static`) from a URI and optional hint.
- */
-export function detectProtocol(
-  uri: string,
-  hint?: SourceProtocol
-): SourceProtocol {
+export function detectProtocol(uri: string, hint?: SourceProtocol): SourceProtocol {
   if (hint) return hint;
-  const trimmed = uri.trim();
-  if (
-    trimmed.startsWith("at://") ||
-    trimmed.startsWith("did:") ||
-    trimmed.includes("/xrpc/com.atproto.repo.getRecord")
-  ) {
+  const t = uri.trim();
+  if (t.startsWith("at://") || t.startsWith("did:") || t.startsWith("@") || t.includes("/xrpc/com.atproto.repo.")) {
     return "atproto";
   }
-  if (
-    trimmed.endsWith(".ttl") ||
-    trimmed.includes(".ttl#") ||
-    trimmed.includes("solid") ||
-    trimmed.includes("/sandbox/solid/")
-  ) {
+  let host = "";
+  try {
+    host = new URL(t.includes("://") ? t : `https://${t}`).hostname;
+  } catch {
+    /* not a URL; treated as static and rejected when fetched */
+  }
+  if (/\.ttl(#.*)?$/i.test(t) || /\/sandbox\/solid\//.test(t) || /solid/i.test(host)) {
     return "solid";
   }
   return "static";
 }
 
-/**
- * Resolves and normalizes a CreativeID from any supported decentralized source.
- */
-export async function resolveAndNormalizeArtist(
-  input: IndexRequestInput,
-  fetchImpl: typeof fetch = fetch,
-  now: Date = new Date()
-): Promise<IndexedArtist> {
-  const rawUri = input.uri.trim();
-  if (!rawUri) {
-    throw new Error("URI is required to resolve an artist.");
-  }
-
-  const protocol = detectProtocol(rawUri, input.sourceType);
-
-  if (protocol === "atproto") {
-    return resolveAtprotoArtist(rawUri, input, fetchImpl, now);
-  }
-
-  return resolveHttpLinkedDataArtist(rawUri, protocol, fetchImpl, now);
+export async function resolvePersona(input: IndexRequestInput, ctx: ResolveContext = {}): Promise<PersonaBundle> {
+  const raw = input.uri?.trim();
+  if (!raw) throw new Error("Give a URI, DID, handle or domain to index.");
+  const protocol = detectProtocol(raw, input.sourceType);
+  return protocol === "atproto" ? resolveAtproto(raw, input, ctx) : resolveLinkedData(raw, protocol, ctx);
 }
 
-async function resolveAtprotoArtist(
-  rawUri: string,
-  input: IndexRequestInput,
-  fetchImpl: typeof fetch,
-  now: Date
-): Promise<IndexedArtist> {
-  let repo = rawUri;
-  let collection = ATPROTO_COLLECTION;
-  let rkey = "self";
-  let pdsBaseUrl = (input.pdsUrl || "https://bsky.social").replace(/\/+$/, "");
+// ---------------------------------------------------------------------------
+// ATProto
+// ---------------------------------------------------------------------------
 
-  if (rawUri.startsWith("at://")) {
-    // e.g. at://did:plc:123/org.creativepassport.actor.persona/self
-    const withoutScheme = rawUri.slice("at://".length);
-    const parts = withoutScheme.split("/");
-    repo = parts[0];
-    if (parts[1]) collection = parts[1];
-    if (parts[2]) rkey = parts[2];
-  } else if (rawUri.includes("/xrpc/com.atproto.repo.getRecord")) {
-    const parsed = new URL(rawUri);
-    pdsBaseUrl = `${parsed.protocol}//${parsed.host}${parsed.pathname.split("/xrpc/")[0]}`;
-    repo = parsed.searchParams.get("repo") || repo;
-    collection = parsed.searchParams.get("collection") || collection;
-    rkey = parsed.searchParams.get("rkey") || rkey;
-  }
-
-  const params = new URLSearchParams({
-    repo,
-    collection,
-    rkey,
-  });
-  const endpoint = `${pdsBaseUrl}/xrpc/com.atproto.repo.getRecord?${params.toString()}`;
-
-  const response = await fetchImpl(endpoint, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(
-      `Failed to fetch ATProto record from ${endpoint} (${response.status}): ${text}`
-    );
-  }
-
-  const data = (await response.json()) as {
-    uri?: string;
-    cid?: string;
-    value?: {
-      name?: string;
-      biography?: string;
-      description?: string;
-      updatedAt?: string;
-    };
-  };
-
-  const name = data.value?.name;
-  const biography = data.value?.biography ?? data.value?.description;
-
-  if (!name || !biography) {
-    throw new Error(
-      "ATProto record is missing required `name` or `biography` fields."
-    );
-  }
-
-  const did = repo.startsWith("did:")
-    ? repo
-    : data.uri?.startsWith("at://did:")
-      ? data.uri.slice("at://".length).split("/")[0]
-      : undefined;
-  const canonicalAtUri =
-    data.uri || `at://${did || repo}/${collection}/${rkey}`;
-
-  return buildNormalizedArtist({
-    name,
-    biography,
-    protocol: "atproto",
-    sourceUri: canonicalAtUri,
-    httpEndpoint: endpoint,
-    did,
-    handle: input.handle || (!repo.startsWith("did:") ? repo : undefined),
-    cid: data.cid,
-    subjectId: canonicalAtUri,
-    updatedAt: data.value?.updatedAt,
-    now,
-  });
+async function getJson<T>(fetchImpl: typeof fetch, url: string): Promise<{ ok: boolean; status: number; body: T }> {
+  const res = await fetchImpl(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+  const body = (await res.json().catch(() => ({}))) as T;
+  return { ok: res.ok, status: res.status, body };
 }
 
-async function resolveHttpLinkedDataArtist(
-  rawUri: string,
-  protocol: "solid" | "static",
-  fetchImpl: typeof fetch,
-  now: Date
-): Promise<IndexedArtist> {
-  // Support bare domain lookup via /.well-known/creativeid.jsonld
-  let targetUrl = rawUri;
-  if (!/^https?:\/\//i.test(targetUrl)) {
-    targetUrl = `https://${targetUrl.replace(/\/+$/, "")}/.well-known/creativeid.jsonld`;
-  }
-
-  const fetchUrl = targetUrl.split("#")[0];
-  const response = await fetchImpl(fetchUrl, {
-    method: "GET",
-    headers: {
-      Accept: "application/ld+json, text/turtle;q=0.9, application/json;q=0.8",
-    },
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(
-      `Failed to fetch Linked Data resource ${fetchUrl} (${response.status}): ${text}`
+async function listAll(fetchImpl: typeof fetch, pds: string, did: string, collection: string): Promise<FetchedRecord[]> {
+  const out: FetchedRecord[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const params = new URLSearchParams({ repo: did, collection, limit: "100" });
+    if (cursor) params.set("cursor", cursor);
+    const { ok, body } = await getJson<{ records?: FetchedRecord[]; cursor?: string }>(
+      fetchImpl,
+      `${pds}/xrpc/com.atproto.repo.listRecords?${params}`
     );
+    if (!ok) break;
+    out.push(...(body.records ?? []));
+    if (!body.cursor || !body.records?.length) break;
+    cursor = body.cursor;
   }
-
-  const contentType = (response.headers.get("content-type") || "").toLowerCase();
-  const etag = response.headers.get("etag") || undefined;
-  const body = await response.text();
-
-  const isTurtle =
-    contentType.includes("turtle") ||
-    fetchUrl.endsWith(".ttl") ||
-    body.trimStart().startsWith("@prefix");
-
-  const parsed = isTurtle
-    ? parseTurtlePersona(body, targetUrl)
-    : parseJsonLdPersona(body, targetUrl);
-
-  const resolvedSubject =
-    parsed.subjectId.startsWith("#")
-      ? `${fetchUrl}${parsed.subjectId}`
-      : parsed.subjectId;
-
-  return buildNormalizedArtist({
-    name: parsed.name,
-    biography: parsed.biography,
-    protocol,
-    sourceUri: targetUrl.includes("#") ? targetUrl : resolvedSubject,
-    httpEndpoint: fetchUrl,
-    subjectId: resolvedSubject,
-    etag,
-    updatedAt: parsed.updatedAt,
-    now,
-  });
+  return out;
 }
 
-/**
- * Normalizes a real-time AT Protocol Jetstream commit event directly into an IndexedArtist.
- */
-export function normalizeJetstreamCommit(
-  event: JetstreamCommitEvent,
-  handle?: string,
-  now: Date = new Date()
-): IndexedArtist | null {
-  if (
-    event.kind !== "commit" ||
-    event.commit.collection !== ATPROTO_COLLECTION ||
-    event.commit.operation === "delete"
-  ) {
-    return null;
+async function resolveAtproto(raw: string, input: IndexRequestInput, ctx: ResolveContext): Promise<PersonaBundle> {
+  const fetchImpl = ctx.fetchImpl ?? fetch;
+  const opts = { fetchImpl, plcDirectory: ctx.plcDirectory, publicApi: ctx.publicApi };
+  let repo = raw.replace(/^@/, "");
+  let pds = input.pdsUrl?.replace(/\/+$/, "");
+
+  if (raw.startsWith("at://")) {
+    repo = raw.slice(5).split("/")[0];
+  } else if (raw.includes("/xrpc/com.atproto.repo.")) {
+    const u = new URL(raw);
+    pds = pds ?? `${u.origin}${u.pathname.split("/xrpc/")[0]}`;
+    repo = u.searchParams.get("repo") ?? repo;
   }
 
-  const record = event.commit.record;
-  if (!record?.name || !record?.biography) {
-    return null;
+  let handle = input.handle;
+  const did = repo.startsWith("did:") ? repo : await resolveHandle(repo, opts);
+  if (!repo.startsWith("did:")) handle = handle ?? repo;
+  if (!pds) {
+    const doc = await resolveDid(did, opts);
+    pds = doc.pds?.replace(/\/+$/, "");
+    handle = handle ?? doc.handle;
+    if (!pds) throw new Error(`${did} has no PDS listed, so its records can't be read.`);
+  } else if (!handle) {
+    // A PDS was given (e.g. a local sandbox); the handle may still be published.
+    handle = await resolveDid(did, opts).then((d) => d.handle, () => undefined);
   }
 
-  const sourceUri = `at://${event.did}/${event.commit.collection}/${event.commit.rkey}`;
-  return buildNormalizedArtist({
-    name: record.name,
-    biography: record.biography,
-    protocol: "atproto",
-    sourceUri,
-    did: event.did,
-    handle,
-    cid: event.commit.cid,
-    subjectId: sourceUri,
-    updatedAt: record.updatedAt,
-    now,
+  const params = new URLSearchParams({ repo: did, collection: NSID.profile, rkey: "self" });
+  const profileUrl = `${pds}/xrpc/com.atproto.repo.getRecord?${params}`;
+  const profile = await getJson<FetchedRecord>(fetchImpl, profileUrl);
+  if (!profile.ok || !profile.body?.value) {
+    throw new Error(`${handle ?? did} hasn't published a CreativeID profile (${NSID.profile}).`);
+  }
+  const [works, connections] = await Promise.all([
+    listAll(fetchImpl, pds, did, NSID.work),
+    listAll(fetchImpl, pds, did, NSID.connection),
+  ]);
+  return fromAtprotoRecords(
+    { did, handle, pdsUrl: pds, httpEndpoint: profileUrl, profile: profile.body, works, connections },
+    ctx.now ?? new Date()
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Linked Data
+// ---------------------------------------------------------------------------
+
+async function readCapped(res: Response, max: number): Promise<string> {
+  const declared = Number(res.headers.get("content-length") || 0);
+  if (declared > max) throw new Error(`Document is too large (${declared} bytes; the limit is ${max}).`);
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel();
+      throw new Error(`Document is too large (over ${max} bytes).`);
+    }
+    chunks.push(value);
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
+}
+
+async function resolveLinkedData(raw: string, protocol: "solid" | "static", ctx: ResolveContext): Promise<PersonaBundle> {
+  const fetchImpl = ctx.fetchImpl ?? fetch;
+  const target = /^https?:\/\//i.test(raw) ? raw : `https://${raw.replace(/\/+$/, "")}${WELL_KNOWN}`;
+  const docUrl = target.split("#")[0];
+  const res = await fetchImpl(docUrl, {
+    headers: { Accept: "application/ld+json, text/turtle;q=0.9, application/json;q=0.8" },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
   });
+  if (!res.ok) throw new Error(`Couldn't fetch ${docUrl} (${res.status}).`);
+  const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
+  const etag = res.headers.get("etag") ?? undefined;
+  const text = await readCapped(res, MAX_DOCUMENT_BYTES);
+  const isTurtle = contentType.includes("turtle") || /\.ttl$/i.test(docUrl) || /^\s*@(prefix|base)/.test(text);
+  const input = { protocol, docUrl, etag, now: ctx.now };
+  return isTurtle ? fromTurtle(text, input) : fromJsonLd(text, input);
 }

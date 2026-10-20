@@ -1,0 +1,97 @@
+[
+  {
+    "collection": "com.cultureblocs.creative.profile",
+    "rkey": "self",
+    "record": {
+      "$type": "com.cultureblocs.creative.profile",
+      "name": "Ama \"Lighthouse\" Owusu",
+      "bio": "Lighting designer and performer.\nWorks across theatre, dance & installation — 光.",
+      "disciplines": [
+        "lighting design",
+        "performance"
+      ],
+      "based": {
+        "name": "Peckham, London"
+      },
+      "links": [
+        {
+          "uri": "https://ama.example",
+          "title": "Portfolio"
+        }
+      ],
+      "externalIds": [
+        {
+          "scheme": "isni",
+          "id": "0000 0004 1234 5678"
+        }
+      ],
+      "createdAt": "2026-10-20T09:00:00.000Z"
+    }
+  },
+  {
+    "collection": "com.cultureblocs.creative.work",
+    "rkey": "3lwkfixtidal2",
+    "record": {
+      "$type": "com.cultureblocs.creative.work",
+      "title": "Tidal",
+      "referenceUrl": "https://ama.example/tidal",
+      "completionDate": "Spring 2025",
+      "credits": [
+        {
+          "name": "Ama Owusu",
+          "role": "lighting design"
+        },
+        {
+          "name": "Kofi",
+          "did": "did:plc:kofi123",
+          "role": "sound"
+        }
+      ],
+      "tags": [
+        "light",
+        "water"
+      ],
+      "createdAt": "2026-10-20T09:00:00.000Z"
+    }
+  },
+  {
+    "collection": "com.cultureblocs.creative.work",
+    "rkey": "3lwkfixnight2",
+    "record": {
+      "$type": "com.cultureblocs.creative.work",
+      "title": "Night Shift",
+      "completionDate": "2024",
+      "createdAt": "2026-10-20T09:00:00.000Z"
+    }
+  },
+  {
+    "collection": "com.cultureblocs.creative.connection",
+    "rkey": "3lwkfixconnaa",
+    "record": {
+      "$type": "com.cultureblocs.creative.connection",
+      "subject": {
+        "$type": "com.cultureblocs.defs#didRef",
+        "did": "did:plc:venue456",
+        "name": "Larkfield Rooms"
+      },
+      "relationship": "performed",
+      "role": "lighting",
+      "createdAt": "2026-10-20T09:00:00.000Z"
+    }
+  },
+  {
+    "collection": "com.cultureblocs.creative.connection",
+    "rkey": "3lwkfixconnbb",
+    "record": {
+      "$type": "com.cultureblocs.creative.connection",
+      "subject": {
+        "$type": "com.cultureblocs.defs#strongRef",
+        "uri": "at://did:plc:gallery/com.cultureblocs.creative.work/3l4k2jxyz2222",
+        "cid": "bafyreiexamplecid"
+      },
+      "relationship": "exhibited",
+      "note": "Group show",
+      "createdAt": "2026-10-20T09:00:00.000Z"
+    }
+  }
+]

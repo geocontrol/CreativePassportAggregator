@@ -1,0 +1,121 @@
+{
+  "@context": {
+    "@vocab": "https://schema.org/",
+    "creativeid": "https://www.cultureblocs.com/ns/creativeid#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "url": {
+      "@type": "@id"
+    },
+    "creativeid:did": {
+      "@type": "@id"
+    },
+    "creativeid:uri": {
+      "@type": "@id"
+    },
+    "dateCreated": {
+      "@type": "xsd:dateTime"
+    },
+    "dateModified": {
+      "@type": "xsd:dateTime"
+    }
+  },
+  "@graph": [
+    {
+      "@id": "#me",
+      "@type": [
+        "Person",
+        "creativeid:Persona"
+      ],
+      "name": "Ama \"Lighthouse\" Owusu",
+      "description": "Lighting designer and performer.\nWorks across theatre, dance & installation — 光.",
+      "knowsAbout": [
+        "lighting design",
+        "performance"
+      ],
+      "homeLocation": {
+        "@type": "Place",
+        "name": "Peckham, London"
+      },
+      "creativeid:links": [
+        {
+          "@type": "WebPage",
+          "url": "https://ama.example",
+          "name": "Portfolio"
+        }
+      ],
+      "identifier": [
+        {
+          "@type": "PropertyValue",
+          "propertyID": "isni",
+          "value": "0000 0004 1234 5678"
+        }
+      ],
+      "dateCreated": "2026-10-20T09:00:00.000Z",
+      "dateModified": "2026-10-20T09:00:00.000Z"
+    },
+    {
+      "@id": "#work-3lwkfixtidal2",
+      "@type": [
+        "CreativeWork",
+        "creativeid:Work"
+      ],
+      "name": "Tidal",
+      "url": "https://ama.example/tidal",
+      "creativeid:completionDate": "Spring 2025",
+      "creativeid:credits": [
+        {
+          "@type": "creativeid:Credit",
+          "name": "Ama Owusu",
+          "creativeid:role": "lighting design"
+        },
+        {
+          "@type": "creativeid:Credit",
+          "name": "Kofi",
+          "creativeid:did": "did:plc:kofi123",
+          "creativeid:role": "sound"
+        }
+      ],
+      "keywords": [
+        "light",
+        "water"
+      ],
+      "dateCreated": "2026-10-20T09:00:00.000Z",
+      "dateModified": "2026-10-20T09:00:00.000Z"
+    },
+    {
+      "@id": "#work-3lwkfixnight2",
+      "@type": [
+        "CreativeWork",
+        "creativeid:Work"
+      ],
+      "name": "Night Shift",
+      "creativeid:completionDate": "2024",
+      "dateCreated": "2026-10-20T09:00:00.000Z",
+      "dateModified": "2026-10-20T09:00:00.000Z"
+    },
+    {
+      "@id": "#claim-3lwkfixconnaa",
+      "@type": "creativeid:Connection",
+      "creativeid:subject": {
+        "creativeid:did": "did:plc:venue456",
+        "name": "Larkfield Rooms"
+      },
+      "creativeid:relationship": "performed",
+      "creativeid:role": "lighting",
+      "dateCreated": "2026-10-20T09:00:00.000Z",
+      "dateModified": "2026-10-20T09:00:00.000Z"
+    },
+    {
+      "@id": "#claim-3lwkfixconnbb",
+      "@type": "creativeid:Connection",
+      "creativeid:subject": {
+        "creativeid:uri": "at://did:plc:gallery/com.cultureblocs.creative.work/3l4k2jxyz2222",
+        "creativeid:cid": "bafyreiexamplecid"
+      },
+      "creativeid:relationship": "exhibited",
+      "creativeid:note": "Group show",
+      "dateCreated": "2026-10-20T09:00:00.000Z",
+      "dateModified": "2026-10-20T09:00:00.000Z"
+    }
+  ]
+}

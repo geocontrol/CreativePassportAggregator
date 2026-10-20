@@ -1,102 +1,183 @@
 /**
- * Normalized Types & Schemas for CreativeID Aggregator (`src/types.ts`)
+ * Index types for the CreativeID Aggregator (`src/types.ts`) — M6.
+ *
+ * The index holds three kinds of record, normalised from wherever they were
+ * published (an ATProto PDS, a Solid Pod, or a static file):
+ *   personas      com.cultureblocs.creative.profile, or the #me node of a graph
+ *   works         com.cultureblocs.creative.work, or #work-… nodes
+ *   connections   com.cultureblocs.creative.connection, or #claim-… nodes
+ * Everything here is a cache of what creatives published; it can be rebuilt
+ * at any time and nothing in it is the only copy.
  */
 
 export type SourceProtocol = "atproto" | "solid" | "static";
 
-export interface IndexedArtist {
-  /** Deterministic aggregator ID (e.g. slugified hash or DID/URI key) */
-  id: string;
-  /** Artist display name */
-  name: string;
-  /** Artist biography / creative statement */
-  biography: string;
-  /** Which decentralized protocol hosts the source of truth */
-  protocol: SourceProtocol;
-  /** Canonical URI of the remote record (at://..., https://pod.../creativeid.ttl#me, etc.) */
-  sourceUri: string;
-  /** Optional HTTP URL to inspect or dereference the source record */
-  httpEndpoint?: string;
-  /** Optional AT Protocol DID (e.g. did:plc:...) */
-  did?: string;
-  /** Optional AT Protocol handle (e.g. ada.eurosky.social) */
-  handle?: string;
-  /** Optional cryptographic content identifier (CID) for ATProto records */
-  cid?: string;
-  /** Optional Solid WebID or JSON-LD @id subject URI */
-  subjectId?: string;
-  /** Optional HTTP ETag for conditional polling of Solid/Static resources */
-  etag?: string;
-  /** Timestamp when the artist last updated their persona */
-  updatedAt: string;
-  /** Timestamp when the aggregator last fetched/verified this record */
-  indexedAt: string;
-  /** Canonical JSON-LD representation served to API consumers */
-  jsonLd: {
-    "@context": {
-      "@vocab": "https://schema.org/";
-      foaf: "http://xmlns.com/foaf/0.1/";
-      creativeid: "https://www.cultureblocs.com/ns/creativeid#";
-    };
-    "@id": string;
-    "@type": ["Person", "creativeid:Persona"];
-    name: string;
-    description: string;
-    "foaf:name": string;
-    dateModified: string;
-    "creativeid:sourceProtocol": SourceProtocol;
-    "creativeid:sourceUri": string;
-    "creativeid:did"?: string;
-    "creativeid:cid"?: string;
-  };
+export const NSID = {
+  profile: "com.cultureblocs.creative.profile",
+  work: "com.cultureblocs.creative.work",
+  connection: "com.cultureblocs.creative.connection",
+} as const;
+export const COLLECTIONS = [NSID.profile, NSID.work, NSID.connection] as const;
+
+export interface Link {
+  uri: string;
+  title?: string;
 }
+
+export interface ExternalId {
+  scheme: string;
+  id: string;
+  uri?: string;
+}
+
+export interface Credit {
+  name: string;
+  did?: string;
+  role?: string;
+}
+
+export type Subject = { did: string; name?: string } | { uri: string; cid?: string };
+
+export interface IndexedPersona {
+  /** Stable index id, derived from the DID (ATProto) or the document URL. */
+  id: string;
+  protocol: SourceProtocol;
+  /** at://…/profile/self, or <document>#me. */
+  sourceUri: string;
+  /** Where the index fetches it from. */
+  httpEndpoint?: string;
+  did?: string;
+  handle?: string;
+  pdsUrl?: string;
+  cid?: string;
+  etag?: string;
+  name: string;
+  bio?: string;
+  disciplines: string[];
+  based?: { name?: string; did?: string };
+  links: Link[];
+  externalIds: ExternalId[];
+  createdAt?: string;
+  updatedAt?: string;
+  indexedAt: string;
+}
+
+export interface IndexedWork {
+  /** at://did/com.cultureblocs.creative.work/<rkey>, or <document>#work-<tid>. */
+  uri: string;
+  cid?: string;
+  personaId: string;
+  did?: string;
+  title: string;
+  referenceUrl?: string;
+  completionDate?: string;
+  description?: string;
+  credits: Credit[];
+  tags: string[];
+  links: Link[];
+  externalIds: ExternalId[];
+  createdAt?: string;
+  indexedAt: string;
+}
+
+export interface IndexedConnection {
+  uri: string;
+  cid?: string;
+  personaId: string;
+  did?: string;
+  subject: Subject;
+  relationship: string;
+  role?: string;
+  note?: string;
+  createdAt?: string;
+  indexedAt: string;
+}
+
+/** Everything one persona published, as fetched in one go. */
+export interface PersonaBundle {
+  persona: IndexedPersona;
+  works: IndexedWork[];
+  connections: IndexedConnection[];
+}
+
+export interface PartyRef {
+  personaId?: string;
+  did?: string;
+  name?: string;
+  handle?: string;
+}
+
+/**
+ * A closed loop: two parties independently saying the same thing.
+ * Facts, not scores — readers decide what they mean.
+ */
+export type Loop =
+  | {
+      type: "peer";
+      /** Both directions of the claim. */
+      a: PartyRef;
+      b: PartyRef;
+      aSays: { relationship: string; role?: string; uri: string; createdAt?: string };
+      bSays: { relationship: string; role?: string; uri: string; createdAt?: string };
+    }
+  | {
+      type: "work";
+      workUri: string;
+      workTitle: string;
+      creator: PartyRef;
+      attester: PartyRef;
+      relationship: string;
+      role?: string;
+      connectionUri: string;
+      attestedAt?: string;
+      /** The attestation names the exact version (CID) of the work. */
+      pinned: boolean;
+      /** Pinned to a version that is no longer the current one. */
+      changedSinceAttested: boolean;
+    };
 
 export interface SearchQuery {
   q?: string;
+  discipline?: string;
+  based?: string;
   protocol?: SourceProtocol;
   limit?: number;
   offset?: number;
+}
+
+export interface PersonaSummary extends IndexedPersona {
+  counts: { works: number; connections: number; loops: number };
 }
 
 export interface SearchResult {
   total: number;
   limit: number;
   offset: number;
-  query: string;
-  protocol?: SourceProtocol;
-  results: IndexedArtist[];
+  query: SearchQuery;
+  results: PersonaSummary[];
 }
 
 export interface IndexRequestInput {
-  /** Target URI (at://..., https://..., or domain) */
+  /** at:// URI, DID, handle, https URL, or a bare domain. */
   uri: string;
-  /** Optional explicit protocol hint */
   sourceType?: SourceProtocol;
-  /** Optional PDS URL override when indexing an at:// URI or handle/DID */
+  /** Use this PDS instead of looking it up from the DID (e.g. a local sandbox). */
   pdsUrl?: string;
-  /** Optional handle metadata for ATProto records */
   handle?: string;
 }
 
-/**
- * Payload emitted by AT Protocol Jetstream WebSocket when filtering by
- * `wantedCollections=org.creativepassport.actor.persona`
- */
+/** A Jetstream commit event for one of the creative collections. */
 export interface JetstreamCommitEvent {
   did: string;
   time_us?: number;
-  kind: "commit";
-  commit: {
+  kind: "commit" | "identity" | "account";
+  commit?: {
     rev?: string;
     operation: "create" | "update" | "delete";
     collection: string;
     rkey: string;
     cid?: string;
-    record?: {
-      $type?: string;
-      name?: string;
-      biography?: string;
-      updatedAt?: string;
-    };
+    record?: Record<string, unknown>;
   };
+  identity?: { did: string; handle?: string };
 }

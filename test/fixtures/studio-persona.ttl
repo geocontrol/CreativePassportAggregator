@@ -1,0 +1,74 @@
+@base <https://ama.solid.example/public/creativeid.ttl> .
+@prefix schema: <https://schema.org/> .
+@prefix creativeid: <https://www.cultureblocs.com/ns/creativeid#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<#me>
+  a schema:Person, creativeid:Persona ;
+  schema:name "Ama \"Lighthouse\" Owusu" ;
+  schema:description "Lighting designer and performer.\nWorks across theatre, dance & installation — 光." ;
+  schema:knowsAbout "lighting design", "performance" ;
+  schema:homeLocation [
+    a schema:Place ;
+    schema:name "Peckham, London"
+  ] ;
+  creativeid:links [
+    a schema:WebPage ;
+    schema:url <https://ama.example> ;
+    schema:name "Portfolio"
+  ] ;
+  schema:identifier [
+    a schema:PropertyValue ;
+    schema:propertyID "isni" ;
+    schema:value "0000 0004 1234 5678"
+  ] ;
+  schema:dateCreated "2026-10-20T09:00:00.000Z"^^xsd:dateTime ;
+  schema:dateModified "2026-10-20T09:00:00.000Z"^^xsd:dateTime .
+
+<#work-3lwkfixtidal2>
+  a schema:CreativeWork, creativeid:Work ;
+  schema:name "Tidal" ;
+  schema:url <https://ama.example/tidal> ;
+  creativeid:completionDate "Spring 2025" ;
+  creativeid:credits [
+    a creativeid:Credit ;
+    schema:name "Ama Owusu" ;
+    creativeid:role "lighting design"
+  ], [
+    a creativeid:Credit ;
+    schema:name "Kofi" ;
+    creativeid:did <did:plc:kofi123> ;
+    creativeid:role "sound"
+  ] ;
+  schema:keywords "light", "water" ;
+  schema:dateCreated "2026-10-20T09:00:00.000Z"^^xsd:dateTime ;
+  schema:dateModified "2026-10-20T09:00:00.000Z"^^xsd:dateTime .
+
+<#work-3lwkfixnight2>
+  a schema:CreativeWork, creativeid:Work ;
+  schema:name "Night Shift" ;
+  creativeid:completionDate "2024" ;
+  schema:dateCreated "2026-10-20T09:00:00.000Z"^^xsd:dateTime ;
+  schema:dateModified "2026-10-20T09:00:00.000Z"^^xsd:dateTime .
+
+<#claim-3lwkfixconnaa>
+  a creativeid:Connection ;
+  creativeid:subject [
+    creativeid:did <did:plc:venue456> ;
+    schema:name "Larkfield Rooms"
+  ] ;
+  creativeid:relationship "performed" ;
+  creativeid:role "lighting" ;
+  schema:dateCreated "2026-10-20T09:00:00.000Z"^^xsd:dateTime ;
+  schema:dateModified "2026-10-20T09:00:00.000Z"^^xsd:dateTime .
+
+<#claim-3lwkfixconnbb>
+  a creativeid:Connection ;
+  creativeid:subject [
+    creativeid:uri <at://did:plc:gallery/com.cultureblocs.creative.work/3l4k2jxyz2222> ;
+    creativeid:cid "bafyreiexamplecid"
+  ] ;
+  creativeid:relationship "exhibited" ;
+  creativeid:note "Group show" ;
+  schema:dateCreated "2026-10-20T09:00:00.000Z"^^xsd:dateTime ;
+  schema:dateModified "2026-10-20T09:00:00.000Z"^^xsd:dateTime .

@@ -1,28 +1,40 @@
 /**
- * CreativeID Aggregator HTTP API Server (`src/server.ts`)
+ * CreativeID Aggregator HTTP API (`src/server.ts`) — M6.
+ *
+ *   GET  /v1/personas?q=&discipline=&based=&protocol=&limit=&offset=
+ *   GET  /v1/personas/:id                  :id = index id, DID, handle, URL or domain
+ *                                          (?resolve=true fetches it if not indexed yet)
+ *   GET  /v1/personas/:id/works            each with its loops
+ *   GET  /v1/personas/:id/connections      { outgoing, incoming }
+ *   GET  /v1/personas/:id/loops
+ *   GET  /v1/works/:uri                    work + its persona + its loops
+ *   GET  /v1/disciplines                   disciplines in use, for filters
+ *   POST /v1/index                         { uri, sourceType?, pdsUrl?, handle? }
+ *   POST /v1/jetstream/event               one Jetstream commit (for tests and bridges)
+ *   POST /v1/seed                          load the fictional demo personas
+ *   GET  /v1/stats
+ * Read-only routes allow any origin (CORS), so other sites can query it.
  */
 
 import { createServer, IncomingMessage, Server, ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
-import { extname, join, resolve } from "node:path";
+import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ArtistIndexStore } from "./indexer.js";
-import {
-  ATPROTO_COLLECTION,
-  normalizeJetstreamCommit,
-  resolveAndNormalizeArtist,
-} from "./resolver.js";
-import {
-  IndexRequestInput,
-  JetstreamCommitEvent,
-  SourceProtocol,
-} from "./types.js";
+import { IndexStore } from "./indexer.js";
+import { resolvePersona } from "./resolver.js";
+import { demoBundles } from "./seed.js";
+import { IndexedPersona, IndexRequestInput, JetstreamCommitEvent, SourceProtocol } from "./types.js";
 
 export interface AggregatorServerOptions {
-  store?: ArtistIndexStore;
+  store?: IndexStore;
   publicDir?: string;
   fetchImpl?: typeof fetch;
+  /**
+   * Allow /v1/index to fetch from localhost and private networks. Needed to
+   * index a studio running on the same machine; leave off for a public index.
+   */
+  allowPrivateHosts?: boolean;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -30,20 +42,34 @@ const MIME_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
 };
+
+class HttpError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
 
 async function readJsonBody<T>(req: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = [];
+  let size = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buf.length;
+    if (size > 512 * 1024) throw new HttpError(413, "Request body too large.");
+    chunks.push(buf);
   }
   const raw = Buffer.concat(chunks).toString("utf8");
   if (!raw.trim()) return {} as T;
-  return JSON.parse(raw) as T;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new HttpError(400, "Request body is not valid JSON.");
+  }
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
-  const body = JSON.stringify(payload, null, 2);
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
@@ -51,25 +77,59 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
     "Access-Control-Allow-Headers": "Content-Type, Accept",
     "Cache-Control": "no-store",
   });
-  res.end(body);
+  res.end(JSON.stringify(payload, null, 2));
 }
 
-export function createAggregatorServer(
-  options: AggregatorServerOptions = {}
-): Server {
+/** Hostnames a public index must not be made to fetch (by name; DNS rebinding is out of scope). */
+export function isPrivateHost(raw: string): boolean {
+  let host: string;
+  try {
+    host = new URL(/^[a-z]+:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return false;
+  }
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host === "::1" ||
+    /^127\./.test(host) ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    /^169\.254\./.test(host) ||
+    /^0\./.test(host) ||
+    /^f[cd][0-9a-f]{2}:/.test(host)
+  );
+}
+
+const PROTOCOLS = new Set(["atproto", "solid", "static"]);
+
+export function createAggregatorServer(options: AggregatorServerOptions = {}): Server {
   const __dirname = fileURLToPath(new URL(".", import.meta.url));
   const projectRoot = resolve(__dirname, "..");
-  const store =
-    options.store ?? new ArtistIndexStore(join(projectRoot, "data", "index.json"));
+  const store = options.store ?? new IndexStore(join(projectRoot, "data", "index.json"));
   const publicDir = options.publicDir ?? join(projectRoot, "public");
   const fetchImpl = options.fetchImpl ?? fetch;
+  const allowPrivate = options.allowPrivateHosts ?? false;
+
+  const requirePersona = async (identifier: string): Promise<IndexedPersona> => {
+    const p = await store.find(identifier);
+    if (!p) throw new HttpError(404, `Nothing indexed for "${identifier}".`);
+    return p;
+  };
+
+  const workWithLoops = async (uri: string) => {
+    const work = await store.work(uri);
+    return work ? { ...work, loops: await store.loopsForWork(uri) } : null;
+  };
 
   return createServer(async (req, res) => {
     try {
-      const host = req.headers.host ?? "localhost:3500";
-      const url = new URL(req.url ?? "/", `http://${host}`);
-      const pathname = url.pathname;
+      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost:3500"}`);
+      const path = url.pathname;
       const method = req.method ?? "GET";
+      let m: RegExpMatchArray | null;
 
       if (method === "OPTIONS") {
         res.writeHead(204, {
@@ -81,161 +141,103 @@ export function createAggregatorServer(
         return;
       }
 
-      // -----------------------------------------------------------------------
-      // 1. GET /v1/stats — Aggregator Statistics
-      // -----------------------------------------------------------------------
-      if (pathname === "/v1/stats" && method === "GET") {
-        const stats = await store.stats();
-        return sendJson(res, 200, stats);
-      }
+      if (path === "/v1/stats" && method === "GET") return sendJson(res, 200, await store.stats());
+      if (path === "/v1/disciplines" && method === "GET") return sendJson(res, 200, { disciplines: await store.disciplines() });
 
-      // -----------------------------------------------------------------------
-      // 2. GET /v1/artists — Search & Filter Indexed Artists
-      // -----------------------------------------------------------------------
-      if (pathname === "/v1/artists" && method === "GET") {
-        const q = url.searchParams.get("q") ?? "";
-        const rawProtocol = url.searchParams.get("protocol");
-        const protocol =
-          rawProtocol === "atproto" ||
-          rawProtocol === "solid" ||
-          rawProtocol === "static"
-            ? (rawProtocol as SourceProtocol)
-            : undefined;
-        const limit = Number(url.searchParams.get("limit") || 20);
-        const offset = Number(url.searchParams.get("offset") || 0);
-
-        const searchResult = await store.search({ q, protocol, limit, offset });
-        return sendJson(res, 200, searchResult);
-      }
-
-      // -----------------------------------------------------------------------
-      // 3. GET /v1/artists/:identifier — Lookup Artist by ID, DID, Handle, or URI
-      // -----------------------------------------------------------------------
-      if (pathname.startsWith("/v1/artists/") && method === "GET") {
-        const identifier = decodeURIComponent(
-          pathname.slice("/v1/artists/".length)
+      if (path === "/v1/personas" && method === "GET") {
+        const p = url.searchParams;
+        const protocol = p.get("protocol");
+        return sendJson(
+          res,
+          200,
+          await store.search({
+            q: p.get("q") ?? undefined,
+            discipline: p.get("discipline") ?? undefined,
+            based: p.get("based") ?? undefined,
+            protocol: protocol && PROTOCOLS.has(protocol) ? (protocol as SourceProtocol) : undefined,
+            limit: Number(p.get("limit") || 20),
+            offset: Number(p.get("offset") || 0),
+          })
         );
-        let artist = await store.findByIdentifier(identifier);
-
-        // Optional on-demand read-through resolution if ?resolve=true
-        if (!artist && url.searchParams.get("resolve") === "true") {
-          const pdsUrl = url.searchParams.get("pdsUrl") || undefined;
-          artist = await resolveAndNormalizeArtist(
-            { uri: identifier, pdsUrl },
-            fetchImpl
-          );
-          await store.upsert(artist);
-        }
-
-        if (!artist) {
-          return sendJson(res, 404, {
-            error: `Artist not found for identifier "${identifier}"`,
-          });
-        }
-
-        // If client explicitly asks for JSON-LD only (`?view=jsonld`)
-        if (url.searchParams.get("view") === "jsonld") {
-          return sendJson(res, 200, artist.jsonLd);
-        }
-
-        return sendJson(res, 200, artist);
       }
 
-      // -----------------------------------------------------------------------
-      // 4. POST /v1/index — Ping-on-Publish / Live URI Resolution & Indexing
-      // -----------------------------------------------------------------------
-      if (pathname === "/v1/index" && method === "POST") {
-        const body = await readJsonBody<IndexRequestInput>(req);
-        if (!body.uri || !body.uri.trim()) {
-          return sendJson(res, 400, {
-            error: "Field `uri` is required (e.g. at://..., https://..., or domain).",
-          });
+      if ((m = path.match(/^\/v1\/personas\/([^/]+)(?:\/(works|connections|loops))?$/)) && method === "GET") {
+        const identifier = decodeURIComponent(m[1]);
+        let persona = await store.find(identifier);
+        if (!persona && url.searchParams.get("resolve") === "true" && !m[2]) {
+          if (!allowPrivate && isPrivateHost(identifier)) throw new HttpError(400, "This index doesn't fetch from private networks.");
+          const bundle = await resolvePersona({ uri: identifier, pdsUrl: url.searchParams.get("pdsUrl") ?? undefined }, { fetchImpl });
+          await store.upsertBundle(bundle);
+          persona = bundle.persona;
         }
+        if (!persona) throw new HttpError(404, `Nothing indexed for "${identifier}".`);
+        if (m[2] === "works") {
+          const works = await store.worksOf(persona.id);
+          return sendJson(res, 200, { works: await Promise.all(works.map((w) => workWithLoops(w.uri))) });
+        }
+        if (m[2] === "connections") return sendJson(res, 200, await store.connectionsOf(persona));
+        if (m[2] === "loops") return sendJson(res, 200, { loops: await store.loopsFor(persona) });
+        return sendJson(res, 200, { persona: await store.summarise(persona) });
+      }
 
-        const normalized = await resolveAndNormalizeArtist(body, fetchImpl);
-        const saved = await store.upsert(normalized);
+      if ((m = path.match(/^\/v1\/works\/(.+)$/)) && method === "GET") {
+        const uri = decodeURIComponent(m[1]);
+        const work = await workWithLoops(uri);
+        if (!work) throw new HttpError(404, `No work indexed at ${uri}.`);
+        const persona = await store.persona(work.personaId);
+        return sendJson(res, 200, { work, persona });
+      }
 
+      if (path === "/v1/index" && method === "POST") {
+        const body = await readJsonBody<IndexRequestInput>(req);
+        if (!body.uri?.trim()) throw new HttpError(400, "Give a `uri`: an at:// link, DID, handle, https URL or domain.");
+        if (!allowPrivate && (isPrivateHost(body.uri) || (body.pdsUrl && isPrivateHost(body.pdsUrl)))) {
+          throw new HttpError(400, "This index doesn't fetch from private networks.");
+        }
+        let bundle;
+        try {
+          bundle = await resolvePersona(body, { fetchImpl });
+        } catch (err) {
+          throw new HttpError(422, (err as Error).message);
+        }
+        await store.upsertBundle(bundle);
         return sendJson(res, 200, {
           indexed: true,
-          artist: saved,
+          persona: await store.summarise(bundle.persona),
+          works: bundle.works.length,
+          connections: bundle.connections.length,
         });
       }
 
-      // -----------------------------------------------------------------------
-      // 5. POST /v1/jetstream/event — Ingest ATProto Jetstream Commit Event
-      // -----------------------------------------------------------------------
-      if (pathname === "/v1/jetstream/event" && method === "POST") {
-        const event = await readJsonBody<JetstreamCommitEvent & { handle?: string }>(
-          req
-        );
-
-        if (
-          event.kind === "commit" &&
-          event.commit?.collection === ATPROTO_COLLECTION &&
-          event.commit?.operation === "delete"
-        ) {
-          const removed = await store.remove(event.did);
-          return sendJson(res, 200, { deleted: removed, did: event.did });
-        }
-
-        const artist = normalizeJetstreamCommit(event, event.handle);
-        if (!artist) {
-          return sendJson(res, 202, {
-            indexed: false,
-            reason: "Ignored non-matching collection or incomplete record.",
-          });
-        }
-
-        const saved = await store.upsert(artist);
-        return sendJson(res, 200, { indexed: true, artist: saved });
+      if (path === "/v1/jetstream/event" && method === "POST") {
+        const event = await readJsonBody<JetstreamCommitEvent>(req);
+        const result = await store.applyCommit(event);
+        return sendJson(res, result.applied ? 200 : 202, result);
       }
 
-      // -----------------------------------------------------------------------
-      // 6. POST /v1/seed — Seed Curated Demo Artists Across All Protocols
-      // -----------------------------------------------------------------------
-      if (pathname === "/v1/seed" && method === "POST") {
-        const seeded = await store.seedDemoArtists();
-        const stats = await store.stats();
-        return sendJson(res, 200, {
-          seededCount: seeded.length,
-          stats,
-          artists: seeded,
-        });
+      if (path === "/v1/seed" && method === "POST") {
+        for (const b of demoBundles()) await store.upsertBundle(b);
+        return sendJson(res, 200, { seeded: demoBundles().length, stats: await store.stats() });
       }
 
-      // -----------------------------------------------------------------------
-      // 7. Static Frontend Assets (Demo Search & API Explorer UI)
-      // -----------------------------------------------------------------------
-      if (method === "GET") {
-        const assetPath = pathname === "/" ? "/index.html" : pathname;
-        const resolvedAsset = resolve(publicDir, `.${assetPath}`);
-        if (!resolvedAsset.startsWith(publicDir)) {
-          res.writeHead(403);
-          res.end("Forbidden");
-          return;
-        }
-
+      if (method === "GET" && !path.startsWith("/v1/")) {
+        const assetPath = path === "/" ? "/index.html" : path;
+        const file = resolve(publicDir, `.${assetPath}`);
+        if (file !== publicDir && !file.startsWith(publicDir + sep)) throw new HttpError(403, "Forbidden");
         try {
-          const content = await readFile(resolvedAsset);
-          const ext = extname(resolvedAsset);
-          const mime = MIME_TYPES[ext] ?? "application/octet-stream";
-          res.writeHead(200, {
-            "Content-Type": mime,
-            "Cache-Control": "no-cache",
-          });
+          const content = await readFile(file);
+          res.writeHead(200, { "Content-Type": MIME_TYPES[extname(file)] ?? "application/octet-stream", "Cache-Control": "no-cache" });
           res.end(content);
           return;
         } catch {
-          res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-          res.end("Not Found");
-          return;
+          throw new HttpError(404, "Not found");
         }
       }
 
-      sendJson(res, 404, { error: "Endpoint not found" });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      sendJson(res, 500, { error: message });
+      throw new HttpError(404, "Endpoint not found");
+    } catch (err) {
+      if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message });
+      sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
   });
 }
