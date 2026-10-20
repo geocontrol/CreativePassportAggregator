@@ -2,6 +2,8 @@
 
 A directory of creative personas published with [CreativeID Studio](https://github.com/geocontrol/creativeid-studio): to AT Protocol, Solid Pods, or a file on someone's own website. It reads what people published, keeps a copy to search, and shows where two people's accounts match. It owns nothing: every entry can be rebuilt from its source, and anyone can run another directory.
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for how it works and why, and [SCOPE.md](SCOPE.md) for what it does and doesn't do.
+
 ## Quick start
 
 ```bash
