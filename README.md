@@ -33,7 +33,7 @@ Ways in:
 - **`POST /v1/index`** with an at:// link, DID, @handle, https URL, or a bare domain (its `/.well-known/creativeid.jsonld` is read).
 - **Jetstream** (`JETSTREAM=on`): creates, edits and deletes arrive live.
 
-Published data is treated as untrusted: values are type-checked and capped at the lexicon limits, documents are limited to 256 KB and 10 s, and a public instance refuses to fetch from private networks.
+Published data is treated as untrusted: values are type-checked and capped at the lexicon limits, documents are limited to 256 KB and 10 s, and a public instance refuses to fetch from private networks. That check runs on every outbound request (handles, `did:web` hosts, PDS endpoints from DID documents, `pdsUrl`, and each redirect hop) after DNS resolution, so names that resolve to private, loopback, link-local or IPv4-mapped IPv6 addresses are refused too. Requires Node.js 24.22.1+ (see `.nvmrc`).
 
 ## Matches ("loops")
 

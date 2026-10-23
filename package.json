@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Directory and search API for CreativeID personas, works and connections published to AT Protocol, Solid Pods and personal websites.",
   "type": "module",
+  "engines": {
+    "node": ">=24.22.1"
+  },
   "scripts": {
     "build": "tsc",
     "test": "node --import tsx --test test/*.test.ts",
