@@ -16,6 +16,7 @@ export * from "./indexer.js";
 export * from "./jetstream.js";
 export * from "./seed.js";
 export * from "./server.js";
+export * from "./netguard.js";
 
 const isMain = (() => {
   try {

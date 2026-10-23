@@ -22,6 +22,7 @@ import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { IndexStore } from "./indexer.js";
+import { guardFetch, isPrivateHost, LookupFn, PrivateNetworkError } from "./netguard.js";
 import { resolvePersona } from "./resolver.js";
 import { demoBundles } from "./seed.js";
 import { IndexedPersona, IndexRequestInput, JetstreamCommitEvent, SourceProtocol } from "./types.js";
@@ -35,6 +36,8 @@ export interface AggregatorServerOptions {
    * index a studio running on the same machine; leave off for a public index.
    */
   allowPrivateHosts?: boolean;
+  /** DNS lookup used by the private-network guard (tests inject one). */
+  lookup?: LookupFn;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -80,29 +83,6 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.end(JSON.stringify(payload, null, 2));
 }
 
-/** Hostnames a public index must not be made to fetch (by name; DNS rebinding is out of scope). */
-export function isPrivateHost(raw: string): boolean {
-  let host: string;
-  try {
-    host = new URL(/^[a-z]+:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  } catch {
-    return false;
-  }
-  return (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    host === "::1" ||
-    /^127\./.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-    /^169\.254\./.test(host) ||
-    /^0\./.test(host) ||
-    /^f[cd][0-9a-f]{2}:/.test(host)
-  );
-}
-
 const PROTOCOLS = new Set(["atproto", "solid", "static"]);
 
 export function createAggregatorServer(options: AggregatorServerOptions = {}): Server {
@@ -110,8 +90,12 @@ export function createAggregatorServer(options: AggregatorServerOptions = {}): S
   const projectRoot = resolve(__dirname, "..");
   const store = options.store ?? new IndexStore(join(projectRoot, "data", "index.json"));
   const publicDir = options.publicDir ?? join(projectRoot, "public");
-  const fetchImpl = options.fetchImpl ?? fetch;
   const allowPrivate = options.allowPrivateHosts ?? false;
+  // A public index checks every outbound hop (handles, did:web, DID-document PDS
+  // endpoints, pdsUrl, redirects), not just the identifier it was given.
+  const fetchImpl = allowPrivate
+    ? options.fetchImpl ?? fetch
+    : guardFetch(options.fetchImpl ?? fetch, { lookup: options.lookup });
 
   const requirePersona = async (identifier: string): Promise<IndexedPersona> => {
     const p = await store.find(identifier);
@@ -165,8 +149,11 @@ export function createAggregatorServer(options: AggregatorServerOptions = {}): S
         const identifier = decodeURIComponent(m[1]);
         let persona = await store.find(identifier);
         if (!persona && url.searchParams.get("resolve") === "true" && !m[2]) {
-          if (!allowPrivate && isPrivateHost(identifier)) throw new HttpError(400, "This index doesn't fetch from private networks.");
-          const bundle = await resolvePersona({ uri: identifier, pdsUrl: url.searchParams.get("pdsUrl") ?? undefined }, { fetchImpl });
+          const pdsUrl = url.searchParams.get("pdsUrl") ?? undefined;
+          if (!allowPrivate && (isPrivateHost(identifier) || (pdsUrl && isPrivateHost(pdsUrl)))) {
+            throw new HttpError(400, "This index doesn't fetch from private networks.");
+          }
+          const bundle = await resolvePersona({ uri: identifier, pdsUrl }, { fetchImpl });
           await store.upsertBundle(bundle);
           persona = bundle.persona;
         }
@@ -198,6 +185,7 @@ export function createAggregatorServer(options: AggregatorServerOptions = {}): S
         try {
           bundle = await resolvePersona(body, { fetchImpl });
         } catch (err) {
+          if (err instanceof PrivateNetworkError) throw err;
           throw new HttpError(422, (err as Error).message);
         }
         await store.upsertBundle(bundle);
@@ -237,6 +225,7 @@ export function createAggregatorServer(options: AggregatorServerOptions = {}): S
       throw new HttpError(404, "Endpoint not found");
     } catch (err) {
       if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message });
+      if (err instanceof PrivateNetworkError) return sendJson(res, 400, { error: err.message });
       sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
   });
