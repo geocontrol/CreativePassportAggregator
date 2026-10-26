@@ -289,6 +289,7 @@ describe("M6 · Jetstream listener", () => {
       cursorFile: join(dir, "cursor"),
       initialDelay: 5,
       log: () => undefined,
+      backfill: false,
       createSocket: (url) => {
         const s: SocketLike = { onopen: null, onmessage: null, onclose: null, onerror: null, close: () => s.onclose?.({}) };
         sockets.push({ url, s });
@@ -310,6 +311,46 @@ describe("M6 · Jetstream listener", () => {
     await new Promise((r) => setTimeout(r, 30));
     assert.equal(sockets.length, 2, "reconnected");
     assert.match(sockets[1].url, /cursor=1800000005000000/, "rewinds 5 s");
+    js.stop();
+  });
+});
+
+describe("Jetstream · reading a new account whole", () => {
+  it("the first event from an unknown account reads its whole persona, once", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "creativeid-js-bf-"));
+    const store = new IndexStore(join(dir, "index.json"));
+    const DID = "did:plc:easelartist";
+    const asked: string[] = [];
+    let socket: SocketLike | undefined;
+    const js = startJetstream(store, {
+      endpoint: "wss://jetstream.test/subscribe",
+      log: () => undefined,
+      backfill: async (did) => {
+        asked.push(did);
+        const at = (c: string, k: string) => `at://${did}/${c}/${k}`;
+        const now = "2026-10-26T19:00:00.000Z";
+        return {
+          persona: { id: `pers_atproto_x`, protocol: "atproto", did, name: "Mark Simpkins", disciplines: [], links: [], externalIds: [], source: at(NSID.profile, "self"), indexedAt: now } as never,
+          works: [
+            { uri: at(NSID.work, "jox7cmxrmd7cbo4u"), cid: "w1", personaId: "pers_atproto_x", did, title: "Reality Towards Enemy", indexedAt: now } as never,
+            { uri: at(NSID.work, "gzbjlafmhnzs5xzu"), cid: "w2", personaId: "pers_atproto_x", did, title: "untitled", indexedAt: now } as never,
+          ],
+          connections: [],
+        };
+      },
+      createSocket: () => {
+        socket = { onopen: null, onmessage: null, onclose: null, onerror: null, close: () => undefined };
+        return socket;
+      },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    const send = (o: unknown) => socket!.onmessage?.({ data: JSON.stringify(o) });
+    const profile = { did: DID, time_us: 1, kind: "commit", commit: { operation: "update", collection: NSID.profile, rkey: "self", cid: "p2", record: { name: "Mark Simpkins" } } };
+    send(profile);
+    send({ ...profile, time_us: 2, commit: { ...profile.commit, cid: "p3" } });
+    await js.idle();
+    assert.deepEqual(asked, [DID], "read once, not on every event");
+    assert.equal(store["works"].size, 2);
     js.stop();
   });
 });
